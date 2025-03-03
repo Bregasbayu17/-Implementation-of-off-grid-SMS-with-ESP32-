@@ -30,17 +30,13 @@ Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
 bool connected = false;
 unsigned long lastPingTime = 0;
 String lastReceivedMessage = "";
-String typedNumber = "";
-String typedMessage = "";
-int wordCount = 0;
-const int maxWords = 30;
 
 void setup() {
   Serial.begin(115200);
   
   while (!Serial);
   Serial.println("LoRa Duplex Communication");
-  SPI.begin(5, 19, 27, 18); // SCK = 5, MISO = 19, MOSI = 27, NSS = 18
+  SPI.begin(5, 19, 27, 18);
   LoRa.setSPI(SPI);
   LoRa.setPins(ss, rst, dio0);
   
@@ -60,56 +56,46 @@ void setup() {
   display.display();
 }
 
+String typedMessage = "";
+const char* t9[] = {"0 ", ".,?!1", "abc2", "def3", "ghi4", "jkl5", "mno6", "pqrs7", "tuv8", "wxyz9"};
+char lastKey = '\0';
+unsigned long lastPressTime = 0;
+int keyIndex = 0;
+const int maxMessageLength = 30;
+
 void loop() {
   char key = keypad.getKey();
   if (key) {
-    if (key >= '0' && key <= '9') {
-      typedNumber += key;
-    } else if (key == 'A') {
-      Serial.println("Pesan terkirim ke " + typedNumber + ": " + typedMessage);
-      LoRa.beginPacket();
-      LoRa.print("To:" + typedNumber + " Msg:" + typedMessage);
-      LoRa.endPacket();
-      typedMessage = "";
-      typedNumber = "";
-      wordCount = 0;
-    } else if (key == '*') {
-      typedMessage = "";
-      wordCount = 0;
-    } else if (key == '#') {
-      typedNumber = "";
-    } else if (key == 'D' ){
-      if (!typedMessage.isEmpty()) {
-        typedMessage.remove(typedMessage.length() - 1);
-        wordCount = countWords(typedMessage);
-      } else if (!typedNumber.isEmpty()) {
-        typedNumber.remove(typedNumber.length() - 1);
+    unsigned long now = millis();
+    if (key == lastKey && now - lastPressTime < 800) {
+      keyIndex = (keyIndex + 1) % strlen(t9[key - '0']);
+      typedMessage[typedMessage.length() - 1] = t9[key - '0'][keyIndex];
+    } else {
+      if (key >= '0' && key <= '9' && strlen(t9[key - '0']) > 0) {
+        if (typedMessage.length() < maxMessageLength) {
+          typedMessage += t9[key - '0'][0];
+          keyIndex = 0;
+        }
+      } else if (key == 'A') {
+        Serial.println("Pesan terkirim: " + typedMessage);
+        LoRa.beginPacket();
+        LoRa.print(typedMessage);
+        LoRa.endPacket();
+        typedMessage = "";
+      } else if (key == '*') {
+        typedMessage = "";
+      } else if (key == 'D' ){
+        if (!typedMessage.isEmpty()) {
+          typedMessage.remove(typedMessage.length() - 1);
+        }
       }
-    } else if (key == ' ' && wordCount < maxWords) {
-      typedMessage += ' ';
-      wordCount++;
-    } else if (wordCount < maxWords) {
-      typedMessage += key;
-      wordCount = countWords(typedMessage);
     }
+    lastPressTime = now;
+    lastKey = key;
     displayMessage();
   }
   receiveMessage();
   sendPing();
-}
-
-int countWords(String message) {
-  int count = 0;
-  bool inWord = false;
-  for (char c : message) {
-    if (c == ' ') {
-      inWord = false;
-    } else if (!inWord) {
-      inWord = true;
-      count++;
-    }
-  }
-  return count;
 }
 
 void sendPing() {
@@ -150,9 +136,9 @@ void displayMessage() {
   } else {
     display.println("Status: Tidak terkoneksi");
   }
-  display.println("Nomor: " + typedNumber);
-  display.println("Ketik: " + typedMessage);
-  display.println("Kata: " + String(wordCount) + "/" + String(maxWords));
   display.println("Terima: " + lastReceivedMessage);
+  display.println("Ketik: " + typedMessage);
+ 
   display.display();
 }
+
